@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Budget du jour</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1c1f24;--mut:#6b7280;--bd:#e3e6ea;--gr:#d9f5e1;--grt:#116b2c;--rd:#fde0e0;--rdt:#a11a1a;--ac:#2563eb;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111316;--card:#1b1e23;--tx:#eceef1;--mut:#9aa1ab;--bd:#2c3037;--gr:#12351d;--grt:#7ee39a;--rd:#411616;--rdt:#ff9b9b;--ac:#6ea0ff}}
+:root[data-theme="dark"]{--bg:#111316;--card:#1b1e23;--tx:#eceef1;--mut:#9aa1ab;--bd:#2c3037;--gr:#12351d;--grt:#7ee39a;--rd:#411616;--rdt:#ff9b9b;--ac:#6ea0ff}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:520px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 12px}
+.top{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px}
+.card small{color:var(--mut);display:block}
+.card b{font-size:22px}
+.tot input{width:130px;font:inherit;font-weight:700;background:transparent;color:var(--tx);border:0;border-bottom:1px dashed var(--mut)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--bd)}
+th:first-child,td:first-child{text-align:left}
+th{font-size:12px;color:var(--mut);font-weight:600}
+tr.ok td{background:var(--gr);color:var(--grt)}
+tr.ko td{background:var(--rd);color:var(--rdt)}
+tr.today td:first-child{box-shadow:inset 4px 0 var(--ac);font-weight:700}
+td input{width:70px;font:inherit;text-align:right;padding:4px 6px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--tx)}
+.hint{color:var(--mut);font-size:13px;margin:10px 2px}
+button{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}
+.hide{display:none!important}
+#login{max-width:340px;margin:12vh auto 0;display:grid;gap:10px}
+#login input{font:inherit;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx)}
+#login button{background:var(--ac);color:#fff;border:0;padding:10px}
+#err{color:var(--rdt);font-size:14px;min-height:1em}
+#status{color:var(--mut);font-size:13px;margin-left:8px}
+</style>
+</head>
+<body>
+<main>
+<form id="login" class="hide" onsubmit="return false">
+  <h1>💶 Budget du jour</h1>
+  <input id="pwd" type="password" placeholder="Code d'accès" autocomplete="current-password">
+  <button id="go">Se connecter</button>
+  <div id="err"></div>
+</form>
+<div id="app" class="hide">
+<h1>💶 Budget du jour<span id="status"></span></h1>
+<div class="top">
+  <div class="card"><small>Aujourd'hui tu peux dépenser</small><b id="tb">–</b></div>
+  <div class="card"><small>Reste au total</small><b id="rem">–</b></div>
+  <div class="card"><small>Dépensé</small><b id="sp">–</b></div>
+  <div class="card tot"><small>Budget total (€)</small><input id="total" type="number" step="0.01" inputmode="decimal"></div>
+  <div class="card tot"><small>Premier jour</small><input id="start" type="date"></div>
+  <div class="card tot"><small>Nombre de jours</small><input id="days" type="number" min="1" max="366" inputmode="numeric"></div>
+</div>
+<table>
+  <thead><tr><th>Date</th><th>Budget du jour</th><th>Dépensé</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<p class="hint">Vert : dans le budget. Rouge : dépassé. L'écart (en plus ou en moins) est automatiquement répercuté sur les jours suivants.</p>
+<button id="reset">Tout remettre à zéro</button> <button id="out">Se déconnecter</button>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL="https://qtfemifjyqcggsbjcdyz.supabase.co";
+const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF0ZmVtaWZqeXFjZ2dzYmpjZHl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExNzIyOTcsImV4cCI6MjEwNjc0ODI5N30.BTyzuzSGNx3_NrfIOsE2naA3iIM9CrfC3OPpm6_OJsU";
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const $=id=>document.getElementById(id);
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const eur=n=>n.toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
+let st={total:180,start:"2026-09-29",days:30,spent:{}},uid=null,trs=[],keys=[],timers={};
+const tbody=$("rows");
+const status=(t)=>{$("status").textContent=t};
+async function run(p){try{const r=await p;if(r.error)throw r.error;status("✓");return r}catch(e){status("⚠ erreur de sauvegarde");console.error(e)}}
+const saveSettings=()=>run(sb.from("budget_settings").upsert({user_id:uid,total:st.total,start_date:st.start,days:st.days}));
+function saveSpent(k){clearTimeout(timers[k]);timers[k]=setTimeout(()=>{
+  const v=st.spent[k];
+  run(v===undefined?sb.from("budget_spent").delete().eq("user_id",uid).eq("day",k)
+    :sb.from("budget_spent").upsert({user_id:uid,day:k,amount:parseFloat(v)}))},500)}
+function build(){
+  tbody.innerHTML="";trs=[];keys=[];
+  const [y,m,d0]=st.start.split("-").map(Number),N=st.days;
+  const now=new Date();now.setHours(0,0,0,0);
+  for(let i=0;i<N;i++){
+    const d=new Date(y,m-1,d0+i),k=iso(d);keys.push(k);
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</td><td class="b"></td><td><input type="number" step="0.01" min="0" inputmode="decimal"></td>`;
+    const inp=tr.querySelector("input");inp.value=st.spent[k]??"";
+    inp.addEventListener("input",()=>{if(inp.value==="")delete st.spent[k];else st.spent[k]=inp.value;saveSpent(k);update()});
+    if(d.getTime()===now.getTime())tr.classList.add("today");
+    tbody.appendChild(tr);trs.push(tr);
+  }
+}
+function update(){
+  const N=trs.length;let used=0,real=0,tb=null;
+  for(let i=0;i<N;i++){
+    const budget=(st.total-used)/(N-i),raw=st.spent[keys[i]],v=parseFloat(raw);
+    trs[i].querySelector(".b").textContent=eur(budget);
+    trs[i].querySelector("input").placeholder=budget.toFixed(2).replace(".",",");
+    trs[i].classList.remove("ok","ko");
+    if(raw!==undefined&&!isNaN(v)){trs[i].classList.add(v>budget+1e-9?"ko":"ok");used+=v;real+=v}else used+=budget;
+    if(trs[i].classList.contains("today"))tb=budget;
+  }
+  $("tb").textContent=tb!==null?eur(tb):"Hors période";
+  $("sp").textContent=eur(real);$("rem").textContent=eur(st.total-real);
+}
+async function enter(session){
+  uid=session.user.id;
+  const [a,b]=await Promise.all([sb.from("budget_settings").select().maybeSingle(),sb.from("budget_spent").select("day,amount")]);
+  if(a.data){st.total=+a.data.total;st.start=a.data.start_date;st.days=a.data.days}
+  st.spent={};(b.data||[]).forEach(r=>st.spent[r.day]=String(r.amount));
+  $("total").value=st.total;$("start").value=st.start;$("days").value=st.days;
+  $("login").classList.add("hide");$("app").classList.remove("hide");
+  build();update();
+}
+const mail=async c=>{const h=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(c));
+  return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,"0")).join("").slice(0,32)+"@budget.app"};
+$("go").onclick=async()=>{
+  $("err").textContent="";
+  const code=$("pwd").value.trim().toLowerCase();if(!code)return;
+  const email=await mail(code),password=code+"#budget";
+  let {data,error}=await sb.auth.signInWithPassword({email,password});
+  if(error){
+    if(!confirm("Ce code n'existe pas encore. Créer une nouvelle page avec ce code ?"))return;
+    ({data,error}=await sb.auth.signUp({email,password}));
+    if(error||!data.session){$("err").textContent="Création impossible"+(error?" : "+error.message:" (désactive « Confirm email » dans Supabase)");return}
+  }
+  enter(data.session);
+};
+$("pwd").addEventListener("keydown",e=>{if(e.key==="Enter")$("go").click()});
+$("out").onclick=async()=>{await sb.auth.signOut();location.reload()};
+$("total").addEventListener("input",e=>{st.total=parseFloat(e.target.value)||0;saveSettings();update()});
+$("start").addEventListener("change",e=>{if(e.target.value){st.start=e.target.value;saveSettings();build();update()}});
+$("days").addEventListener("input",e=>{const n=parseInt(e.target.value);if(n>=1){st.days=Math.min(n,366);saveSettings();build();update()}});
+$("reset").onclick=async()=>{if(confirm("Effacer toutes les dépenses ?")){st.spent={};await run(sb.from("budget_spent").delete().eq("user_id",uid));build();update()}};
+sb.auth.getSession().then(({data})=>{if(data.session)enter(data.session);else $("login").classList.remove("hide")});
+</script>
+</body>
+</html>
